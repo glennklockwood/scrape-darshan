@@ -23,7 +23,12 @@ type MountCount struct {
 
 func scan_darshanlog(filename string) (count int, err error) {
 	var out bytes.Buffer
-	cmd := exec.Command("darshan-parser", filename)
+	if strings.HasSuffix(filename, ".txt.gz") {
+		cmd := exec.Command("gunzip", "-c", filename)
+	} else {
+		cmd := exec.Command("darshan-parser", filename)
+	}
+	// use blocking Run and load store all of stdout in a bytes.Buffer
 	cmd.Stdout = &out
 	err = cmd.Run()
 	if err != nil {
@@ -32,6 +37,22 @@ func scan_darshanlog(filename string) (count int, err error) {
 	}
 	scanner := bufio.NewScanner(strings.NewReader(out.String()))
 	for scanner.Scan() {
+		/*
+			// alternatively, use non-blocking Start and block on processing output from the StdoutPipe
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				count = -1
+				return
+			}
+			cmd.Start()
+			reader := bufio.NewReader(stdout)
+			for {
+				line, _, err := reader.ReadLine()
+				if err != nil {
+					break
+				}
+				tokens := strings.Split(line, ":")
+		*/
 		// "# mount entry: 8157206977945068522   /global/cscratch1   lustre"
 		tokens := strings.Split(scanner.Text(), ":")
 		if len(tokens) >= 1 && tokens[0] == "# mount entry" {
@@ -49,10 +70,10 @@ func worker(id int, filenames <-chan string, results chan<- MountCount) {
 	var result MountCount
 
 	for filename := range filenames {
+		log.Printf("Task %2d processing %s\n", id, filename)
 		result.filename = filename
 		result.count, result.err = scan_darshanlog(filename)
 		results <- result // this blocks
-		log.Printf("Task %2d processed %s\n", id, filename)
 	}
 }
 
